@@ -1,0 +1,161 @@
+---
+title: "House Price Prediction"
+author: "Hana Le"
+date: "2023-01-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Introduction
+
+This project is based on the Kaggle competition ["House Prices: Advanced Regression Techniques"](https://www.kaggle.com/competitions/house-prices-advanced-regression-techniques). The goal of this project is to predict housing prices in based on the provided training data (train.csv) and evaluate the performance of the model using the test data (test.csv). Through this project, I aim to not only build a robust prediction model but also gain some knowledge and insights on data wrangling and analysis. 
+
+# 2. Overview the data
+## 2.1 Loading packages and reading the data
+
+```{r housing, message = FALSE, results='hide'}
+# Loading R packages
+packages <- c("tidyverse","janitor", "gridExtra", "GGally", "moments", "corrplot", "ggcorrplot", "naniar", "visdat", "moments", "mice", "reshape2", "xgboost") 
+sapply(packages, require, character = TRUE)
+```
+
+```{r}
+# Reading data
+train <- read.csv("housing_data/train.csv")
+test <- read.csv("housing_data/test.csv")
+```
+
+
+## 2.2. Data size and structure
+The housing train data set has 1460 obs and 81 variables with the response variable Sale Price. The housing test data set has 1459 obs and 80 variables.
+
+```{r glimpse}
+dim(train) ; dim(test)
+```
+
+```{r combine 2 datasets}
+# Combine 2 data sets to see the structure and for cleaning and feature engineering later.
+# Removing Id as not necessary but keeping the test Id for the final file.
+test_labels <- test$Id
+test$Id <- NULL
+train$Id <- NULL
+test$SalePrice <- NA
+data <- rbind(train, test)
+dim(data) 
+```
+The data now has 80 columns consisting of 79 predictors and reponse variable Sale price.
+
+
+```{r vis_dat, message=FALSE, warning=FALSE}
+vis_dat(data)
+```
+
+
+There are 3 types of data, character and integer, and missing data. It looks like some features have much more missing values than others.
+
+## 2.3 Missingness of the data
+
+The dataset has 13965 missing values (exclude the missing values for Sale price in the test dataset), happens to be about 6%.
+
+```{r missing_data}
+n_miss(data[,colnames(data)!="SalePrice"])
+pct_miss(data[,colnames(data)!="SalePrice"])
+data_miss <- names(data[colSums(is.na(data[,colnames(data)!="SalePrice"])) > 0])
+cat("There are", length(data_miss), "columns with missing values")
+```
+
+```{r}
+vis_miss(data[,data_miss], sort_miss = TRUE) # visualizing missing data
+```
+
+Five predictors having the most missing values which is about 50% or more are: PoolQC, MiscFeature, Alley, Fence, FireplaceQu. As described in the data_description.txt file, the NA value reflects the houses didn't have these features. 
+
+# 3 Exploring most important variables
+
+Before imputing missing values, let's see some of most important variables.
+
+## 3.1 Sale price
+
+```{r saleprice_summary}
+summary(data$SalePrice)
+```
+The min sale price was 34,900 (which is a dream for now!). On the other hand, the max sale price was 755,000, which is over 20 times more than the min sale price.
+
+```{r saleprice_hist, message=FALSE, warning=FALSE, fig.align='center'}
+ggplot(data = data[!is.na(data$SalePrice),], aes(x = SalePrice)) + 
+  geom_histogram(fill = "steelblue", color = "white") +
+labs(x = "Sale Price", y = "Count") +
+   theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = 'bold'),
+        panel.border = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.line = element_line( linewidth = 1, colour = "black")) 
+```
+The Sale Price obviously looks right skewed. Log transformation can solve the issue. It looks normally distributed now.
+
+```{r saleprice_log}
+skewness(data$SalePrice, na.rm = T)
+data <- data %>% mutate(log_SalePrice = log(SalePrice))
+skewness(data$log_SalePrice, na.rm= T)
+```
+
+
+```{r saleprice1, message=FALSE, fig.align='center'}
+ggplot(data[!is.na(data$log_SalePrice),], aes(x = log_SalePrice)) + 
+  geom_histogram(fill = "steelblue", color = "white") +
+labs(x = "Log(Sale Price)", y = "Count") +
+   theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, face = 'bold'),
+        panel.border = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.line = element_line(linewidth = 1, colour = "black")) 
+```
+```{r}
+# Remove SalePrice
+data$SalePrice <- NULL
+```
+
+
+## 3.2. Most important predictors of Sale Price
+
+### 3.2.1. Numeric predictors
+
+```{r correlation, fig.align='center', out.width="120%"}
+# Selecting numeric variables
+vars_num <- which(sapply(data, is.numeric))
+data_varNum <- data[, vars_num] 
+
+# Correlation of numeric variables
+data_corr <- cor(data_varNum, use="pairwise.complete.obs")
+#data_corr <-  vars_num %>% drop_na() %>% cor()
+
+ggcorrplot(data_corr, type = "full", lab = TRUE, lab_size = 1.5, show.legend = TRUE, tl.cex = 5, ggtheme = ggplot2::theme_dark(), title = "Correlation of numeric predictors")
+
+```
+
+```{r}
+# Select high correlation (> 0.7)
+(corr_table <- melt(data_corr) %>% arrange(desc(value)) %>%
+  mutate(value = round(value, digits = 4)) %>%
+    filter(value != 1 & abs(value) > 0.7))
+
+(corr_table_price <- corr_table %>% filter(Var1 == "log_SalePrice"))
+```
+
+
+**Observation**:
+
+- OverallQual and  GrLivArea are hightly correlated with Log_SalePrice. 
+- There are some predictor variables are highly correlated to each other (r > 0.7) including: GarageArea  vs GarageCars; GarageYrBlt vs YearBuilt; GrLivArea vs TotalRmsAbvGrd; TotalBsmtSF vs X1stFlrSF. I realized not all houses having basement which could add more value to Sale price. 
+
+continue....
+
+
+
+
+
