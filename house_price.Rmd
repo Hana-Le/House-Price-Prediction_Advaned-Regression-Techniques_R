@@ -18,7 +18,7 @@ This project is based on the Kaggle competition ["House Prices: Advanced Regress
 
 ```{r housing, message = FALSE, results='hide'}
 # Loading R packages
-packages <- c("tidyverse","janitor", "gridExtra", "GGally", "moments", "corrplot", "ggcorrplot", "naniar", "visdat", "moments", "mice", "reshape2", "xgboost") 
+packages <- c("tidyverse", "psych","DT", "gridExtra", "GGally", "corrplot", "ggcorrplot", "naniar", "visdat", "moments", "mice", "reshape2", "xgboost") 
 sapply(packages, require, character = TRUE)
 ```
 
@@ -36,6 +36,7 @@ The housing train data set has 1460 obs and 81 variables with the response varia
 dim(train) ; dim(test)
 ```
 
+
 ```{r combine 2 datasets}
 # Combine 2 data sets to see the structure and for cleaning and feature engineering later.
 # Removing Id as not necessary but keeping the test Id for the final file.
@@ -43,46 +44,69 @@ test_labels <- test$Id
 test$Id <- NULL
 train$Id <- NULL
 test$SalePrice <- NA
-data <- rbind(train, test)
-dim(data) 
+df <- rbind(train, test)
+dim(df) 
 ```
 The data now has 80 columns consisting of 79 predictors and reponse variable Sale price.
 
 
-```{r vis_dat, message=FALSE, warning=FALSE}
-vis_dat(data)
+```{r}
+str(df)
 ```
 
+**Observation**:
 
-There are 3 types of data, character and integer, and missing data. It looks like some features have much more missing values than others.
+There are 2 types of data, integer and character. I will change categorical variables into factors later so modelling would treat them correctly.
+
+There are some variables should be in categorical form:
+
+- MSsubClass: should be categorical variable as it indicated the type of dwelling involved in the sale. 
+- MoSold should be a categorical rather than numeric variable as high values are not better than low values (i.e. sold in December is not better than in Januray)
+- Same as MoSold for YrSold and YearBuilt. However, these 2 predictors can create a new numeric predictor age. But I leave it later after doing correlation matrix.
+
 
 ## 2.3 Missingness of the data
 
 The dataset has 13965 missing values (exclude the missing values for Sale price in the test dataset), happens to be about 6%.
 
 ```{r missing_data}
-n_miss(data[,colnames(data)!="SalePrice"])
-pct_miss(data[,colnames(data)!="SalePrice"])
-data_miss <- names(data[colSums(is.na(data[,colnames(data)!="SalePrice"])) > 0])
-cat("There are", length(data_miss), "columns with missing values")
+n_miss(df[,colnames(df)!="SalePrice"])
+pct_miss(df[,colnames(df)!="SalePrice"])
+
+# Select columns with > 0 missing values
+df_miss <- names(df[colSums(is.na(df[,colnames(df)!="SalePrice"])) > 0])
+cat("There are", length(df_miss), "columns with missing values")
 ```
+
+```{r, warning=FALSE, message=FALSE}
+vis_miss(df[,df_miss], sort_miss = TRUE) # visualizing missing data
+```
+
+- The predictors having the most missing values which is about 50% or more are: PoolQC, MiscFeature, Alley, Fence, FireplaceQu. They are all categorical variables. As described in the data_description.txt file, the NA value reflects the houses didn't have these features. 
+- Followed by FotFrontage (16.7%), Garage related (5.x%) and basement related variables (2.x%).
+
+## 2.3 Descriptive statistics
+
+```{r, warning=FALSE, message=FALSE}
+df_table <- describe(df)
+datatable(df_table, options = list(pageLength = 10))
+```
+
+
+# 3 Exploring variables
 
 ```{r}
-vis_miss(data[,data_miss], sort_miss = TRUE) # visualizing missing data
+# Using data from now on, keep df untouched just in case of checking back
+data <- df
 ```
 
-Five predictors having the most missing values which is about 50% or more are: PoolQC, MiscFeature, Alley, Fence, FireplaceQu. As described in the data_description.txt file, the NA value reflects the houses didn't have these features. 
-
-# 3 Exploring most important variables
-
-Before imputing missing values, let's see some of most important variables.
 
 ## 3.1 Sale price
 
 ```{r saleprice_summary}
 summary(data$SalePrice)
 ```
-The min sale price was 34,900 (which is a dream for now!). On the other hand, the max sale price was 755,000, which is over 20 times more than the min sale price.
+The min sale price was 34,900 (my dream!). On the other hand, the max sale price was 755,000, which is over 20 times more than the min sale price. It sounds ok to me as I don't see any unusual at the moment.
 
 ```{r saleprice_hist, message=FALSE, warning=FALSE, fig.align='center'}
 ggplot(data = data[!is.na(data$SalePrice),], aes(x = SalePrice)) + 
@@ -95,10 +119,11 @@ labs(x = "Sale Price", y = "Count") +
         panel.grid.major = element_blank(),
         axis.line = element_line( linewidth = 1, colour = "black")) 
 ```
-The Sale Price obviously looks right skewed. Log transformation can solve the issue. It looks normally distributed now.
+The Sale Price obviously looks right skewed. We need to normalize it to meet normality assumption of linear regression. Log transformation can solve the issue. It looks normally distributed now.
 
 ```{r saleprice_log}
 skewness(data$SalePrice, na.rm = T)
+# using data1 from now
 data <- data %>% mutate(log_SalePrice = log(SalePrice))
 skewness(data$log_SalePrice, na.rm= T)
 ```
@@ -121,9 +146,10 @@ data$SalePrice <- NULL
 ```
 
 
-## 3.2. Most important predictors of Sale Price
+## 3.2. Exploring predictors of Sale Price
 
 ### 3.2.1. Numeric predictors
+
 
 ```{r correlation, fig.align='center', out.width="120%"}
 # Selecting numeric variables
@@ -139,23 +165,143 @@ ggcorrplot(data_corr, type = "full", lab = TRUE, lab_size = 1.5, show.legend = T
 ```
 
 ```{r}
-# Select high correlation (> 0.7)
-(corr_table <- melt(data_corr) %>% arrange(desc(value)) %>%
-  mutate(value = round(value, digits = 4)) %>%
-    filter(value != 1 & abs(value) > 0.7))
-
-(corr_table_price <- corr_table %>% filter(Var1 == "log_SalePrice"))
+# Select high correlation (> 0.7) to detech multicollinear
+corr_table <- melt(data_corr) %>% arrange(desc(value)) %>%
+  mutate(value = round(value, digits = 4))%>%
+  filter(value !=1)
+  
+(corr_high <- corr_table %>% filter(abs(value) > 0.7))
 ```
 
+```{r}
+# high corrleactions with Log_SalePrice
+(corr_table_price <- corr_table %>% filter(abs(value) > 0.5 & Var1 == "log_SalePrice"))
+```
 
 **Observation**:
 
 - OverallQual and  GrLivArea are hightly correlated with Log_SalePrice. 
-- There are some predictor variables are highly correlated to each other (r > 0.7) including: GarageArea  vs GarageCars; GarageYrBlt vs YearBuilt; GrLivArea vs TotalRmsAbvGrd; TotalBsmtSF vs X1stFlrSF. I realized not all houses having basement which could add more value to Sale price. 
 
-continue....
+- There are some predictor variables are highly correlated to each other (r > 0.7) including: GarageArea  vs GarageCars; GarageYrBlt vs YearBuilt; GrLivArea vs TotalRmsAbvGrd; TotalBsmtSF vs X1stFlrSF. So there is multicollinear issue here that needs to be solved.
+- Beside, YearBuilt and YearRemodAdd are also highly correlated to each other and have high correlction with Log_SalePrice ( >0.5). So I create Age, Remod (yes/no) and to reflect if the house was remodeled and its age
+
+```{r, warning=FALSE}
+#data %>% select(YearBuilt, YearRemodAdd, YrSold) %>% head(10)
+data <- data %>% mutate(
+Age = YrSold - YearRemodAdd)
+Remod = ifelse(data$YearBuilt == data$YearRemodAdd, 0 , 1) 
+IsNew = ifelse(data$YearBuilt == data$YrSold, 1, 0)
+```
 
 
+```{r}
+# hightly correlated variables 
+high_corr_vars <- c(" TotalBsmtSF","GarageArea", "TotalRmsAbvGrd", "GarageYrBlt", "YearRemodAdd", "YrSold")
+
+```
+
+- I realized not all houses having basement which could add more value to Sale price. So I create a new feature basement/none to replace TotalBsmtSF.
+
+```{r}
+#sum(data1$TotalBsmtSF == 0) # 79 houses without basement
+data <- data %>% mutate(Basement = case_when(TotalBsmtSF == 0 ~ 0, TRUE ~ 1))
+```
+
+- Among these numeric features, there are some features can be group together such as Bathrooms and Porch area.
+
+```{r}
+data <- data %>% mutate(
+Bathrooms = FullBath + HalfBath*0.5 + BsmtHalfBath*0.5 + BsmtFullBath,
+PorchArea = ScreenPorch + X3SsnPorch + OpenPorchSF + EnclosedPorch 
+)
+```
+
+#### Visualizing relationship of Log_SalePrice with important numeric variables
+
+```{r}
+data_fullPrice <- data[!is.na(data$log_SalePrice),]
+ggplot(data=data_fullPrice, aes(x=factor(OverallQual), y=log_SalePrice)) +
+        geom_boxplot(fill = "steelblue") +
+  labs(x='Overall Quality') +
+  theme_bw()
+
+```
 
 
+There is positive linear relationship between Log_SalePrice with Overal Quality
 
+```{r, message=FALSE}
+library(ggrepel)
+data_fullPrice$name <- rownames(data_fullPrice)
+ggplot(data=data_fullPrice, aes(x=GrLivArea, y=log_SalePrice)) +
+        geom_point(color = "steelblue") + 
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_text_repel(data = subset(data_fullPrice, GrLivArea > 4550), aes(label = name)) +
+  theme_bw()
+```
+
+Log_SalePrice and GrLivArea has positive linear relationship. It looks like there are 2 extreme points (rows 524 and 1299) which had very large area but sold with low prices.
+
+### 3.2.1. Categorical predictors
+
+
+```{r}
+# Categorical variables
+vars_cat <- which(sapply(data, is.character))
+cat("There are", length(vars_cat), "categorical variables")
+
+# Change data type to factor
+data[,vars_cat] <- data.frame(lapply(data[,vars_cat], as.factor))
+
+#Convert MSSubClass and MoSold variables into factor
+data$MSSubClass <- as.factor(data$MSSubClass)
+data$MoSold <- as.factor(data$MoSold)
+data$YrSold <- as.factor(data$YrSold)
+```
+
+
+Some variables should be in ordinal form:
+
+- Some catergorical variables related to quality should be in ordinal form.
+- While OveralQual and OveralCond also should be treated as ordinal variable but since they are have 10 levels which are in numbers so in this case I would leave them as they are and treat them as numeric variable.
+
+```{r}
+# KitchenQual
+data$KitchenQual <- factor(data$KitchenQual, levels = c("Po","Fa","TA","Gd","Ex"), ordered = TRUE)
+
+# GarageFinish ,GarageQual, GarageCond
+data$GarageFinish <- factor(data$GarageFinish, levels = c("None", "Unf","RFn","Fin"),
+                            ordered = TRUE)
+data$GarageQual <- factor(data$GarageQual, levels = c("None","Po","Fa","TA","Gd","Ex"),
+                          ordered = TRUE)
+data$GarageCond <- factor(data$GarageCond, levels = c("None","Po","Fa","TA","Gd","Ex"),                              ordered = TRUE)
+
+# ExterQual, ExterCond
+data$ExterQual <- factor(data$ExterQual,levels = c("Po","Fa","TA","Gd","Ex"), ordered = TRUE)
+data$ExterCond <- factor(data$ExterCond,levels = c("Po","Fa","TA","Gd","Ex"), ordered = TRUE)
+
+# BsmtQual, BsmtCont ,BsmtExposure ,BsmtFinType1
+data$BsmtQual <- factor(data$BsmtQual, levels = c("None","Po","Fa","TA","Gd","Ex"), ordered = TRUE)
+data$BsmtCond <- factor(data$BsmtCond, levels = c("None","Po","Fa","TA","Gd","Ex"), ordered = TRUE)
+data$BsmtExposure <- factor(data$BsmtExposure, levels = c("None","Po","Fa","TA","Gd","Ex"), ordered = TRUE)
+data$BsmtFinType1 <- factor(data$BsmtFinType1, levels = c("None","Po","Fa","TA","Gd","Ex"), ordered = TRUE)
+
+# FireplaceQu
+data$FireplaceQu <- factor(data$FireplaceQu, levels = c("None","Po","Fa","TA","Gd","Ex"), ordered = TRUE)
+
+# Electrical
+data$Electrical <- factor(data$Electrical, levels = c("FuseP","Mix","FuseF","FuseA","SBrkr"), ordered = TRUE)
+
+# Fence
+data$Fence <- factor(data$Fence, levels = c("None","MnWw","MnPrv","GdWo","GdPrv"), ordered = TRUE)
+
+# PoolQC
+data$PoolQC <- factor(data$PoolQC, levels = c("None","Fa","Gd","Ex"), ordered =  TRUE)
+```
+
+
+Continue...
+
+## Imputing missing data
+## Feature engineering
+## Modelling
