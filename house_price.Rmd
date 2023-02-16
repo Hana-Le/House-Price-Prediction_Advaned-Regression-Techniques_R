@@ -168,7 +168,7 @@ summary(data$SalePrice)
 ```
 The min Sale price was 34,900 (my dream!). On the other hand, the max Sale price was 755,000, which is over 20 times more than the min sale price. It sounds ok to me as I don't see any unusual at the moment.
 
-```{r saleprice_hist, message=FALSE, warning=FALSE, fig.align='center', out.width= "60%"}
+```{r saleprice_hist, message=FALSE, warning=FALSE, fig.align='center', out.width= "70%"}
 ggplot(data = data[!is.na(data$SalePrice),], aes(x = SalePrice)) + 
   geom_histogram(fill = "steelblue", color = "white") +
 labs(x = "Sale Price", y = "Count") +
@@ -189,7 +189,7 @@ skewness(data$log_SalePrice, na.rm= T)
 ```
 
 
-```{r saleprice1, message=FALSE, fig.align='center',out.width= "60%"}
+```{r saleprice1, message=FALSE, fig.align='center',out.width= "70%"}
 ggplot(data[!is.na(data$log_SalePrice),], aes(x = log_SalePrice)) + 
   geom_histogram(fill = "steelblue", color = "white") +
 labs(x = "Log(Sale Price)", y = "Count") +
@@ -214,7 +214,7 @@ So I tried party package and it worked. It is a popular package for constructing
 ### 3.2.1 Finding important predicitors
 
 
-```{r, message=FALSE,fig.align='center', out.width= "60%"}
+```{r, message=FALSE,fig.align='center', out.width= "80%"}
 library(party)
 set.seed(1234)
 # Fit a cforest model
@@ -259,7 +259,7 @@ ggplot(data=data_fullPrice, aes(x = reorder(Neighborhood,log_SalePrice, FUN = me
 
 OverallQual: rating the overall material and finish of the house on a scale from very poor (1) to very excellent (10)
 
-```{r, fig.align='center', out.width= "60%"}
+```{r, fig.align='center', out.width= "70%"}
 ggplot(data=data_fullPrice, aes(x=factor(OverallQual), y=log_SalePrice)) +
         geom_boxplot(fill = "steelblue") +
   labs(x="Overall Quality") +
@@ -273,7 +273,7 @@ Graph shows the positive linear relationship between Log_SalePrice with Overal Q
 
 GrLivArea: Above Grade Living Area
 
-```{r, message=FALSE, fig.align='center', out.width= "60%"}
+```{r, message=FALSE, fig.align='center', out.width= "70%"}
 library(ggrepel)
 data_fullPrice$name <- rownames(data_fullPrice)
 ggplot(data=data_fullPrice, aes(x=GrLivArea, y=log_SalePrice)) +
