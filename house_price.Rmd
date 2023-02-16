@@ -29,7 +29,7 @@ test <- read.csv("housing_data/test.csv")
 ```
 
 
-## 2.2. Data size and structure
+## 2.2 Data size and structure
 The housing train data set has 1460 obs and 81 variables with the response variable Sale Price. The housing test data set has 1459 obs and 80 variables.
 
 ```{r glimpse}
@@ -143,7 +143,7 @@ vis_miss(df[,df_miss], sort_miss = TRUE) # visualizing missing data
 
 I leave imputing missing values later after exploring variables.
 
-## 2.3 Descriptive statistics
+## 2.4 Descriptive statistics
 
 ```{r, warning=FALSE, message=FALSE}
 df_table <- describe(df)
@@ -201,7 +201,7 @@ labs(x = "Log(Sale Price)", y = "Count") +
 data$SalePrice <- NULL
 ```
 
-## 3.2. Exploring predictors of Sale Price
+## 3.2 Exploring predictors of Sale Price
 
 I wanted quickly see which predictor variables were important. I tried several packages including randomForest, earth, Step-wise Regression but failed as they can't handle missing values. I haven't done the imputing missing values at this stage as there are quite a lot variables (35) having missing values. I want to see if certain variables are worth to get them full :D.
 
@@ -279,7 +279,7 @@ ggplot(data=data_fullPrice, aes(x=GrLivArea, y=log_SalePrice)) +
   theme_bw()
 ```
 
-### 3.2.1. Correlation matrix
+### 3.2.3 Correlation matrix
 
 
 ```{r correlation, fig.align='center', out.width="120%"}
